@@ -11,6 +11,7 @@ const TEMPORARY_CREDENTIALS = {
   password: 'HRL2026!',
 };
 const AUTH_SESSION_KEY = 'hrl-document-builder-authenticated';
+const logoUrl = `${import.meta.env.BASE_URL}hrl-logo-crop.png`;
 
 const documentTypes = {
   billing: {
@@ -94,7 +95,7 @@ function LoginScreen({ onLogin }) {
       </section>
       <section className="login-form-panel">
         <form className="login-card" onSubmit={submit}>
-          <img className="login-logo" src="/hrl-logo-crop.png" alt="HRL IT Services" />
+          <img className="login-logo" src={logoUrl} alt="HRL IT Services" />
           <p className="eyebrow">Secure workspace</p>
           <h2>Welcome back</h2>
           <p className="login-intro">Sign in to manage your billing and quotations.</p>
@@ -332,7 +333,7 @@ export default function App() {
                   <header className="invoice-top"><h2>{config.heading}</h2></header>
                   <div className="top-divider" />
                   <section className="brand-row">
-                    <img src="/hrl-logo-crop.png" alt="HRL IT Services" className="brand-logo" />
+                    <img src={logoUrl} alt="HRL IT Services" className="brand-logo" />
                     <div className="company-details"><strong>{company.name}</strong><span>{company.taxId}</span><span>{company.address1}</span><span>{company.address2}</span><span>{company.country}</span></div>
                   </section>
                   <div className="soft-divider" />
