@@ -34,6 +34,11 @@ const documentTypes = {
   },
 };
 
+const navigationItems = {
+  ...documentTypes,
+  reports: { navLabel: 'Reports', title: 'Reports' },
+};
+
 function formatDate(value) {
   if (!value) return '';
   return new Date(`${value}T00:00:00`).toLocaleDateString('en-PH', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -138,6 +143,9 @@ function DocumentIcon({ type }) {
   if (type === 'transmittal') return (
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h8M4 17h6M14 14l4-4 3 3M18 10v9" /></svg>
   );
+  if (type === 'reports') return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 20V10h4v10M10 20V4h4v16M15 20v-7h4v7M3 20h18" /></svg>
+  );
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6V3Zm9 0v4h4M9 11h6M9 15h4" /></svg>
   );
@@ -185,6 +193,71 @@ function paginateItems(items) {
   return pages;
 }
 
+function calculateDraftTotal(draft) {
+  return draft.items.reduce(
+    (sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0
+  );
+}
+
+function ReportsDashboard({ drafts, onOpenDocument }) {
+  const invoiceTotal = calculateDraftTotal(drafts.billing);
+  const quotationTotal = calculateDraftTotal(drafts.quotation);
+  const transmittedUnits = drafts.transmittal.items.reduce((sum, item) => sum + Number(item.qty || 0), 0);
+  const totalLineItems = Object.values(drafts).reduce((sum, draft) => sum + draft.items.length, 0);
+  const maxFinancialValue = Math.max(invoiceTotal, quotationTotal, 1);
+  const rows = [
+    { type: 'billing', label: 'Invoice', draft: drafts.billing, value: peso.format(invoiceTotal) },
+    { type: 'quotation', label: 'Quotation', draft: drafts.quotation, value: peso.format(quotationTotal) },
+    { type: 'transmittal', label: 'Transmittal', draft: drafts.transmittal, value: `${transmittedUnits} unit${transmittedUnits === 1 ? '' : 's'}` },
+  ];
+
+  return (
+    <section className="reports-page">
+      <header className="reports-header">
+        <div><p className="eyebrow">Workspace overview</p><h1>Reports</h1><p>Summary of the documents currently prepared in this browser session.</p></div>
+        <div className="report-date"><span>Report date</span><strong>{formatDate(toDateInputValue(new Date()))}</strong></div>
+      </header>
+
+      <div className="report-summary-grid">
+        <article className="report-stat"><span>Invoice value</span><strong>{peso.format(invoiceTotal)}</strong><small>{drafts.billing.items.length} line items</small></article>
+        <article className="report-stat"><span>Quotation value</span><strong>{peso.format(quotationTotal)}</strong><small>{drafts.quotation.items.length} line items</small></article>
+        <article className="report-stat"><span>Units transmitted</span><strong>{transmittedUnits}</strong><small>{drafts.transmittal.items.length} line items</small></article>
+        <article className="report-stat accent"><span>Total entries</span><strong>{totalLineItems}</strong><small>Across all documents</small></article>
+      </div>
+
+      <div className="report-content-grid">
+        <article className="report-panel document-overview">
+          <div className="report-panel-title"><div><h2>Document overview</h2><p>Current draft status and recipient details</p></div></div>
+          <div className="report-table-wrap">
+            <table className="report-table">
+              <thead><tr><th>Document</th><th>Number</th><th>Recipient</th><th>Issued</th><th>Items</th><th>Value / Qty</th><th /></tr></thead>
+              <tbody>
+                {rows.map(({ type, label, draft, value }) => (
+                  <tr key={type}>
+                    <td><span className={`report-type-dot ${type}`} />{label}</td>
+                    <td>{draft.meta.number}</td><td>{draft.client.name || 'Not specified'}</td>
+                    <td>{formatDate(draft.meta.issueDate)}</td><td>{draft.items.length}</td><td><strong>{value}</strong></td>
+                    <td><button onClick={() => onOpenDocument(type)}>Open</button></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article className="report-panel value-comparison">
+          <div className="report-panel-title"><div><h2>Financial comparison</h2><p>Invoice and quotation draft values</p></div></div>
+          <div className="report-bars">
+            <div><div className="report-bar-label"><span>Invoice</span><strong>{peso.format(invoiceTotal)}</strong></div><span className="report-bar-track"><i className="billing" style={{ width: `${(invoiceTotal / maxFinancialValue) * 100}%` }} /></span></div>
+            <div><div className="report-bar-label"><span>Quotation</span><strong>{peso.format(quotationTotal)}</strong></div><span className="report-bar-track"><i className="quotation" style={{ width: `${(quotationTotal / maxFinancialValue) * 100}%` }} /></span></div>
+          </div>
+          <div className="report-session-note"><strong>Current-session report</strong><span>Historical reports will become available once database storage is connected.</span></div>
+        </article>
+      </div>
+    </section>
+  );
+}
+
 export default function App() {
   const previewRef = useRef(null);
   const [isAuthenticated, setIsAuthenticated] = useState(
@@ -201,8 +274,9 @@ export default function App() {
     transmittal: createDraft('transmittal'),
   }));
   const [exporting, setExporting] = useState(false);
-  const config = documentTypes[activeType];
-  const { client, meta, items } = drafts[activeType];
+  const isReports = activeType === 'reports';
+  const config = navigationItems[activeType];
+  const { client, meta, items } = isReports ? drafts.billing : drafts[activeType];
   const subtotal = useMemo(() => items.reduce(
     (sum, item) => sum + Number(item.price || 0) * Number(item.qty || 0), 0
   ), [items]);
@@ -262,7 +336,7 @@ export default function App() {
           <div><strong>HRL Workspace</strong><span>Documents</span></div>
         </div>
         <nav className="document-nav" aria-label="Document types">
-          {Object.entries(documentTypes).map(([type, item]) => (
+          {Object.entries(navigationItems).map(([type, item]) => (
             <button key={type} className={activeType === type ? 'active' : ''} onClick={() => setActiveType(type)}
               aria-current={activeType === type ? 'page' : undefined}>
               <DocumentIcon type={type} /><span>{item.navLabel}</span>
@@ -270,13 +344,16 @@ export default function App() {
           ))}
         </nav>
         <div className="nav-account">
-          <div className="nav-context"><span>Creating</span><strong>{config.title}</strong></div>
+          <div className="nav-context"><span>{isReports ? 'Viewing' : 'Creating'}</span><strong>{config.title}</strong></div>
           <button className="logout-button" onClick={logout} title="Sign out" aria-label="Sign out">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 5H5v14h5M14 8l4 4-4 4M8 12h10" /></svg>
           </button>
         </div>
       </header>
 
+      {isReports ? (
+        <ReportsDashboard drafts={drafts} onOpenDocument={setActiveType} />
+      ) : (
       <div className="workspace">
         <aside className="editor-panel">
           <div className="editor-header">
@@ -416,6 +493,7 @@ export default function App() {
           </div>
         </section>
       </div>
+      )}
     </main>
   );
 }
