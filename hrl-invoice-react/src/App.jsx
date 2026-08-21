@@ -26,6 +26,12 @@ const documentTypes = {
     recipientLabel: 'Quote for', previewRecipientLabel: 'Prepared for', totalLabel: 'Quotation total',
     defaultNumber: 'QUO-000001', defaultMessage: 'We look forward to working with you!', fileFallback: 'quotation',
   },
+  transmittal: {
+    navLabel: 'Transmittal', title: 'Transmittal Form', heading: 'TRANSMITTAL', numberLabel: 'Transmittal number',
+    previewNumberLabel: 'Transmittal No.', recipientLabel: 'Transmit to', previewRecipientLabel: 'Transmitted to',
+    defaultNumber: 'TRN-000001', defaultMessage: 'Please acknowledge receipt of the items listed above.',
+    fileFallback: 'transmittal', hasEndDate: false, isTransmittal: true,
+  },
 };
 
 function formatDate(value) {
@@ -57,6 +63,7 @@ function createDraft(type) {
     meta: {
       number: config.defaultNumber, issueDate, endDate: addDays(issueDate, type === 'quotation' ? 30 : 10),
       footerMessage: config.defaultMessage,
+      receivedBy: '', receivedDate: '',
       generatedAt: new Date().toLocaleString('en-PH', { dateStyle: 'long', timeStyle: 'short' }),
     },
     items: [],
@@ -125,9 +132,13 @@ function LoginScreen({ onLogin }) {
 }
 
 function DocumentIcon({ type }) {
-  return type === 'billing' ? (
+  if (type === 'billing') return (
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Zm3 5h6M9 12h6" /></svg>
-  ) : (
+  );
+  if (type === 'transmittal') return (
+    <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h11M4 12h8M4 17h6M14 14l4-4 3 3M18 10v9" /></svg>
+  );
+  return (
     <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6V3Zm9 0v4h4M9 11h6M9 15h4" /></svg>
   );
 }
@@ -137,7 +148,9 @@ function estimateItemHeight(item) {
   const description = String(item.description || '');
   const descriptionLines = description
     ? description.split('\n').reduce((lines, part) => lines + Math.max(1, Math.ceil(part.length / 42)), 0) : 0;
-  return Math.max(83, 49 + nameLines * 18 + descriptionLines * 19);
+  const remarksLines = String(item.remarks || '')
+    .split('\n').reduce((lines, part) => lines + Math.max(1, Math.ceil(part.length / 28)), 0);
+  return Math.max(83, 49 + nameLines * 18 + Math.max(descriptionLines, item.remarks ? remarksLines : 0) * 19);
 }
 
 function takePageItems(items, heightBudget) {
@@ -182,7 +195,11 @@ export default function App() {
     name: 'HRL IT Services', taxId: '639218182994', address1: '162 D1 Gen. Julian Cruz, Barangka,',
     address2: 'Marikina City, NCR, 1803', country: 'PH',
   };
-  const [drafts, setDrafts] = useState(() => ({ billing: createDraft('billing'), quotation: createDraft('quotation') }));
+  const [drafts, setDrafts] = useState(() => ({
+    billing: createDraft('billing'),
+    quotation: createDraft('quotation'),
+    transmittal: createDraft('transmittal'),
+  }));
   const [exporting, setExporting] = useState(false);
   const config = documentTypes[activeType];
   const { client, meta, items } = drafts[activeType];
@@ -200,7 +217,9 @@ export default function App() {
     items: items.map((item) => (item.id === id ? { ...item, [key]: value } : item)),
   });
   const addItem = () => updateDraft({
-    items: [...items, { id: crypto.randomUUID(), name: 'New Item', description: '', price: 0, qty: 1, tax: '' }],
+    items: [...items, config.isTransmittal
+      ? { id: crypto.randomUUID(), qty: 1, description: '', remarks: '' }
+      : { id: crypto.randomUUID(), name: 'New Item', description: '', price: 0, qty: 1, tax: '' }],
   });
   const removeItem = (id) => updateDraft({ items: items.filter((item) => item.id !== id) });
 
@@ -276,7 +295,9 @@ export default function App() {
                 const issueDate = e.target.value;
                 updateMeta({ issueDate, endDate: addDays(issueDate, activeType === 'quotation' ? 30 : 10) });
               }} /></Field>
-              <Field label={config.dateLabel}><input type="date" value={meta.endDate} onChange={(e) => updateMeta({ endDate: e.target.value })} /></Field>
+              {config.hasEndDate !== false && (
+                <Field label={config.dateLabel}><input type="date" value={meta.endDate} onChange={(e) => updateMeta({ endDate: e.target.value })} /></Field>
+              )}
             </div>
           </section>
 
@@ -294,19 +315,29 @@ export default function App() {
           <section className="editor-section">
             <div className="section-title-row"><h2>Items</h2><span>{items.length} {items.length === 1 ? 'item' : 'items'}</span></div>
             {items.length === 0 ? (
-              <div className="empty-items"><strong>No items yet</strong><span>Add products or services to this {config.title.toLowerCase()}.</span></div>
+              <div className="empty-items"><strong>No items yet</strong><span>Add {config.isTransmittal ? 'items to transmit' : `products or services to this ${config.title.toLowerCase()}`}.</span></div>
             ) : (
               <div className="item-edit-list">
                 {items.map((item, index) => (
                   <div className="item-card" key={item.id}>
                     <div className="item-card-head"><strong>Item {index + 1}</strong><button className="danger-link" onClick={() => removeItem(item.id)}>Remove</button></div>
-                    <div className="form-grid two">
-                      <Field label="Name"><input value={item.name} onChange={(e) => updateItem(item.id, 'name', e.target.value)} /></Field>
-                      <Field label="Price"><input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(item.id, 'price', Number(e.target.value))} /></Field>
-                      <Field label="Quantity"><input type="number" min="0" step="1" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', Number(e.target.value))} /></Field>
-                      <Field label="Tax"><input placeholder="-" value={item.tax} onChange={(e) => updateItem(item.id, 'tax', e.target.value)} /></Field>
-                    </div>
-                    <Field label="Description"><textarea rows="2" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} /></Field>
+                    {config.isTransmittal ? (
+                      <div className="form-grid transmittal-fields">
+                        <Field label="Qty"><input type="number" min="0" step="1" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', Number(e.target.value))} /></Field>
+                        <Field label="Description"><textarea rows="3" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} /></Field>
+                        <Field label="Remarks"><textarea rows="3" value={item.remarks} onChange={(e) => updateItem(item.id, 'remarks', e.target.value)} /></Field>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="form-grid two">
+                          <Field label="Name"><input value={item.name} onChange={(e) => updateItem(item.id, 'name', e.target.value)} /></Field>
+                          <Field label="Price"><input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(item.id, 'price', Number(e.target.value))} /></Field>
+                          <Field label="Quantity"><input type="number" min="0" step="1" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', Number(e.target.value))} /></Field>
+                          <Field label="Tax"><input placeholder="-" value={item.tax} onChange={(e) => updateItem(item.id, 'tax', e.target.value)} /></Field>
+                        </div>
+                        <Field label="Description"><textarea rows="2" value={item.description} onChange={(e) => updateItem(item.id, 'description', e.target.value)} /></Field>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
@@ -318,6 +349,12 @@ export default function App() {
             <h2>Document footer</h2>
             <div className="form-grid">
               <Field label={`${config.title} message`}><input value={meta.footerMessage} onChange={(e) => updateMeta({ footerMessage: e.target.value })} /></Field>
+              {config.isTransmittal && (
+                <div className="form-grid two">
+                  <Field label="Received by"><input value={meta.receivedBy} onChange={(e) => updateMeta({ receivedBy: e.target.value })} placeholder="Recipient's name" /></Field>
+                  <Field label="Date received"><input type="date" value={meta.receivedDate} onChange={(e) => updateMeta({ receivedDate: e.target.value })} /></Field>
+                </div>
+              )}
               <Field label="Generated on"><input value={meta.generatedAt} onChange={(e) => updateMeta({ generatedAt: e.target.value })} /></Field>
             </div>
           </section>
@@ -340,12 +377,22 @@ export default function App() {
                   <section className="invoice-meta-grid">
                     <div className="bill-to"><strong>{config.previewRecipientLabel}</strong><span>{client.name}</span><span>{client.email}</span><span>{client.address1}</span><span>{client.address2}</span><span>{client.country}</span></div>
                     <div className="meta-block"><strong>{config.previewNumberLabel}</strong><span>{meta.number}</span></div>
-                    <div className="meta-block"><strong>Issue Date</strong><span>{formatDate(meta.issueDate)}</span><strong className="due-label">{config.previewDateLabel}</strong><span>{formatDate(meta.endDate)}</span></div>
+                    <div className="meta-block"><strong>Issue Date</strong><span>{formatDate(meta.issueDate)}</span>{config.hasEndDate !== false && <><strong className="due-label">{config.previewDateLabel}</strong><span>{formatDate(meta.endDate)}</span></>}</div>
                   </section>
-                  <section className="invoice-table">
-                    <div className="table-head"><span>ITEM NAME</span><span>PRICE</span><span>QTY.</span><span>TAX</span><span>SUBTOTAL</span></div>
+                  <section className={`invoice-table ${config.isTransmittal ? 'transmittal-table' : ''}`}>
+                    {config.isTransmittal ? (
+                      <div className="table-head"><span>QTY</span><span>DESCRIPTION</span><span>REMARKS</span></div>
+                    ) : (
+                      <div className="table-head"><span>ITEM NAME</span><span>PRICE</span><span>QTY.</span><span>TAX</span><span>SUBTOTAL</span></div>
+                    )}
                     <div className="accent-line" />
-                    {pageItems.length === 0 ? <div className="preview-empty">Items added in the editor will appear here.</div> : pageItems.map((item) => (
+                    {pageItems.length === 0 ? <div className="preview-empty">Items added in the editor will appear here.</div> : pageItems.map((item) => config.isTransmittal ? (
+                      <div className="invoice-item" key={item.id}>
+                        <span className="transmittal-qty">{item.qty}</span>
+                        <span className="transmittal-description">{item.description || '—'}</span>
+                        <span className="transmittal-remarks">{item.remarks || '-'}</span>
+                      </div>
+                    ) : (
                       <div className="invoice-item" key={item.id}>
                         <div className="item-main"><strong>{item.name || '—'}</strong>{item.description && <p>{item.description}</p>}</div>
                         <span className="numeric strong">{peso.format(Number(item.price || 0))}</span>
@@ -354,8 +401,14 @@ export default function App() {
                       </div>
                     ))}
                   </section>
-                  {isLastPage && <section className="totals-wrap"><div className="totals-row grand-total"><span>{config.totalLabel}</span><strong>{peso.format(subtotal)}</strong></div></section>}
-                  {isLastPage && meta.footerMessage && <section className="invoice-message"><strong>{meta.footerMessage}</strong><span>{activeType === 'quotation' ? 'This quotation is valid until the date shown above.' : 'We appreciate the opportunity to serve you.'}</span></section>}
+                  {isLastPage && !config.isTransmittal && <section className="totals-wrap"><div className="totals-row grand-total"><span>{config.totalLabel}</span><strong>{peso.format(subtotal)}</strong></div></section>}
+                  {isLastPage && meta.footerMessage && <section className="invoice-message"><strong>{meta.footerMessage}</strong><span>{activeType === 'quotation' ? 'This quotation is valid until the date shown above.' : activeType === 'transmittal' ? 'Received in good order and condition.' : 'We appreciate the opportunity to serve you.'}</span></section>}
+                  {isLastPage && config.isTransmittal && (
+                    <section className="receipt-acknowledgment">
+                      <div><span>{meta.receivedBy || '\u00a0'}</span><strong>Received By</strong></div>
+                      <div><span>{meta.receivedDate ? formatDate(meta.receivedDate) : '\u00a0'}</span><strong>Date</strong></div>
+                    </section>
+                  )}
                   <footer className="invoice-footer"><span>Generated on {meta.generatedAt}</span><span>Page {pageIndex + 1} of {itemPages.length}</span></footer>
                 </div>
               );
