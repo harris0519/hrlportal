@@ -174,19 +174,22 @@ function takePageItems(items, heightBudget) {
 }
 
 function paginateItems(items) {
+  // Compact document headers leave an extra 100px for line items.
+  const lastPageBudget = 530;
+  const fullPageBudget = 710;
   if (!items.length) return [[]];
-  if (items.reduce((sum, item) => sum + estimateItemHeight(item), 0) <= 430) return [items];
+  if (items.reduce((sum, item) => sum + estimateItemHeight(item), 0) <= lastPageBudget) return [items];
   const pages = [];
   let remaining = items;
-  const firstPageCount = takePageItems(remaining, 610);
+  const firstPageCount = takePageItems(remaining, fullPageBudget);
   pages.push(remaining.slice(0, firstPageCount));
   remaining = remaining.slice(firstPageCount);
   while (remaining.length) {
-    if (remaining.reduce((sum, item) => sum + estimateItemHeight(item), 0) <= 430) {
+    if (remaining.reduce((sum, item) => sum + estimateItemHeight(item), 0) <= lastPageBudget) {
       pages.push(remaining);
       break;
     }
-    const pageCount = takePageItems(remaining, 610);
+    const pageCount = takePageItems(remaining, fullPageBudget);
     pages.push(remaining.slice(0, pageCount));
     remaining = remaining.slice(pageCount);
   }
@@ -380,7 +383,7 @@ export default function App() {
 
           <section className="editor-section">
             <h2>{config.recipientLabel}</h2>
-            <div className="form-grid">
+            <div className="form-grid recipient-grid">
               {Object.entries(client).map(([key, value]) => (
                 <Field key={key} label={key.replace(/([A-Z])/g, ' $1').replace(/^./, (s) => s.toUpperCase())}>
                   <input value={value} onChange={(e) => updateClient(key, e.target.value)} />
@@ -406,7 +409,7 @@ export default function App() {
                       </div>
                     ) : (
                       <>
-                        <div className="form-grid two">
+                        <div className="form-grid item-fields">
                           <Field label="Name"><input value={item.name} onChange={(e) => updateItem(item.id, 'name', e.target.value)} /></Field>
                           <Field label="Price"><input type="number" min="0" step="0.01" value={item.price} onChange={(e) => updateItem(item.id, 'price', Number(e.target.value))} /></Field>
                           <Field label="Quantity"><input type="number" min="0" step="1" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', Number(e.target.value))} /></Field>
