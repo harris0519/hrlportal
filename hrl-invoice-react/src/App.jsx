@@ -1,6 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import html2canvas from 'html2canvas';
 import jsPDF from 'jspdf';
+import { buildDocumentEmail, defaultEmailMessage } from './documentEmail.js';
 
 const peso = new Intl.NumberFormat('en-PH', { style: 'currency', currency: 'PHP', minimumFractionDigits: 2 });
 
@@ -277,6 +278,11 @@ export default function App() {
     transmittal: createDraft('transmittal'),
   }));
   const [exporting, setExporting] = useState(false);
+  const [emailOpen, setEmailOpen] = useState(false);
+  const [emailForm, setEmailForm] = useState({ to: '', subject: '', message: '' });
+  const [emailStatus, setEmailStatus] = useState({ type: '', message: '' });
+  const [sending, setSending] = useState(false);
+  const [emailAccessCode, setEmailAccessCode] = useState('');
   const isReports = activeType === 'reports';
   const config = navigationItems[activeType];
   const { client, meta, items } = isReports ? drafts.billing : drafts[activeType];
@@ -300,10 +306,8 @@ export default function App() {
   });
   const removeItem = (id) => updateDraft({ items: items.filter((item) => item.id !== id) });
 
-  const exportPdf = async () => {
-    if (!previewRef.current) return;
-    setExporting(true);
-    try {
+  const makePdf = async () => {
+    if (!previewRef.current) throw new Error('Document preview is unavailable.');
       const pageElements = previewRef.current.querySelectorAll('.invoice-page');
       const pdf = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
       for (let index = 0; index < pageElements.length; index += 1) {
@@ -314,9 +318,60 @@ export default function App() {
         if (index > 0) pdf.addPage('a4', 'portrait');
         pdf.addImage(image, 'PNG', 0, 0, 210, 297, undefined, 'FAST');
       }
+      return pdf;
+  };
+
+  const exportPdf = async () => {
+    setExporting(true);
+    try {
+      const pdf = await makePdf();
       pdf.save(`${meta.number || config.fileFallback}.pdf`);
+    } catch (error) {
+      window.alert(error.message || 'Could not export the PDF.');
     } finally {
       setExporting(false);
+    }
+  };
+
+  const openEmail = () => {
+    setEmailForm({
+      to: client.email,
+      subject: `${config.title} ${meta.number} from HRL IT Services`,
+      message: defaultEmailMessage(activeType, client.name),
+    });
+    setEmailStatus({ type: '', message: '' });
+    setEmailOpen(true);
+  };
+
+  const emailData = {
+    type: activeType, ...emailForm, number: meta.number, clientName: client.name,
+    issueDate: meta.issueDate, endDate: meta.endDate, footerMessage: meta.footerMessage,
+    items: items.map((item) => ({
+      name: String(item.name || ''), description: String(item.description || ''),
+      remarks: String(item.remarks || ''), qty: Number(item.qty || 0), price: Number(item.price || 0),
+    })),
+  };
+
+  const sendEmail = async (event) => {
+    event.preventDefault();
+    if (sending) return;
+    setSending(true);
+    setEmailStatus({ type: '', message: '' });
+    try {
+      const pdf = await makePdf();
+      const pdfBase64 = pdf.output('datauristring').split(',')[1];
+      const endpoint = import.meta.env.VITE_EMAIL_API_URL || '/api/send-document';
+      const response = await fetch(endpoint, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-HRL-Email-Code': emailAccessCode },
+        body: JSON.stringify({ ...emailData, pdfBase64 }),
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.message || 'The email could not be sent.');
+      setEmailStatus({ type: 'success', message: `Sent to ${emailForm.to}. The PDF is attached.` });
+    } catch (error) {
+      setEmailStatus({ type: 'error', message: error.message || 'The email could not be sent.' });
+    } finally {
+      setSending(false);
     }
   };
 
@@ -327,6 +382,8 @@ export default function App() {
 
   const logout = () => {
     sessionStorage.removeItem(AUTH_SESSION_KEY);
+    setEmailAccessCode('');
+    setEmailOpen(false);
     setIsAuthenticated(false);
   };
 
@@ -364,7 +421,10 @@ export default function App() {
               <p className="eyebrow">Document builder</p><h1>{config.title}</h1>
               <p className="header-description">Create, preview, and export your {config.title.toLowerCase()}.</p>
             </div>
-            <button className="primary" onClick={exportPdf} disabled={exporting}>{exporting ? 'Exporting…' : 'Export PDF'}</button>
+            <div className="editor-actions">
+              <button className="secondary" onClick={openEmail}>Send email</button>
+              <button className="primary" onClick={exportPdf} disabled={exporting}>{exporting ? 'Exporting…' : 'Export PDF'}</button>
+            </div>
           </div>
 
           <section className="editor-section">
@@ -496,6 +556,30 @@ export default function App() {
           </div>
         </section>
       </div>
+      )}
+      {emailOpen && !isReports && (
+        <div className="email-overlay" onMouseDown={(event) => { if (event.target === event.currentTarget && !sending) setEmailOpen(false); }}>
+          <section className="email-dialog" role="dialog" aria-modal="true" aria-labelledby="email-title">
+            <div className="email-dialog-header">
+              <div><p className="eyebrow">Send document</p><h2 id="email-title">Email this {config.title.toLowerCase()}</h2><p>A polished email with your document attached as a PDF.</p></div>
+              <button type="button" className="email-close" onClick={() => setEmailOpen(false)} disabled={sending} aria-label="Close email dialog">×</button>
+            </div>
+            <div className="email-dialog-body">
+              <form id="document-email-form" className="email-compose" onSubmit={sendEmail}>
+                <Field label="To"><input type="email" required value={emailForm.to} onChange={(event) => setEmailForm({ ...emailForm, to: event.target.value })} placeholder="client@example.com" /></Field>
+                <Field label="Subject"><input required maxLength="180" value={emailForm.subject} onChange={(event) => setEmailForm({ ...emailForm, subject: event.target.value })} /></Field>
+                <Field label="Message"><textarea required rows="8" maxLength="5000" value={emailForm.message} onChange={(event) => setEmailForm({ ...emailForm, message: event.target.value })} /></Field>
+                <Field label="Email authorization code"><input type="password" required autoComplete="off" value={emailAccessCode} onChange={(event) => setEmailAccessCode(event.target.value)} placeholder="Enter your send code" /></Field>
+                <div className="email-attachment"><span className="email-attachment-icon">PDF</span><div><strong>{meta.number || config.fileFallback}.pdf</strong><span>Current {config.title.toLowerCase()} preview, including all pages</span></div></div>
+              </form>
+              <div className="email-preview-panel"><div className="email-preview-label"><span className="live-dot" /> Message preview</div><iframe title="Email message preview" sandbox="" srcDoc={buildDocumentEmail(emailData).htmlContent} /></div>
+            </div>
+            <div className="email-dialog-footer">
+              <div className={`email-status ${emailStatus.type}`} role="status" aria-live="polite">{emailStatus.message}</div>
+              <div className="email-footer-actions"><button type="button" className="secondary" onClick={() => setEmailOpen(false)} disabled={sending}>Close</button><button form="document-email-form" className="primary" type="submit" disabled={sending}>{sending ? 'Sending…' : 'Send email'}</button></div>
+            </div>
+          </section>
+        </div>
       )}
     </main>
   );

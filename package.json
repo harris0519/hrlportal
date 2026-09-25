@@ -5,6 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite ./hrl-invoice-react",
+    "dev:api": "node --env-file=.env.local --watch server/index.js",
+    "start:api": "node --env-file-if-exists=.env.local server/index.js",
+    "test": "node --test server/*.test.js",
     "build": "vite build ./hrl-invoice-react",
     "preview": "vite preview ./hrl-invoice-react"
   },
