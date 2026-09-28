@@ -32,7 +32,7 @@ jobs:
 
       - name: Build site
         env:
-          VITE_EMAIL_API_URL: ${{ vars.VITE_EMAIL_API_URL }}
+          VITE_EMAIL_API_URL: https://hrlportal.onrender.com/api/send-document
         run: npm run build
 
       - name: Configure GitHub Pages

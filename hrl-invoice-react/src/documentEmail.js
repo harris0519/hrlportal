@@ -26,6 +26,9 @@ export function validateDocumentEmail(input) {
     data[key] = input[key].trim();
   }
   if (!/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(data.to)) throw new Error('Enter a valid recipient email.');
+  if (input.cc !== undefined && (typeof input.cc !== 'string' || input.cc.length > 2550)) throw new Error('Enter valid CC email addresses.');
+  data.cc = input.cc?.trim() ? input.cc.split(',').map((address) => address.trim()) : [];
+  if (data.cc.length > 10 || data.cc.some((address) => !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(address))) throw new Error('Enter up to 10 valid CC email addresses, separated by commas.');
   if (!data.subject || !data.message || !data.number || !data.clientName) throw new Error('Complete the recipient, subject, message, client name, and document number.');
   if (/[\r\n]/.test(data.subject) || /[\r\n]/.test(data.number)) throw new Error('Subject and document number must be one line.');
   if (!Array.isArray(input.items) || input.items.length > 100) throw new Error('Document items are invalid.');

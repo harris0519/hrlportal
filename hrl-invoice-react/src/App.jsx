@@ -11,7 +11,12 @@ const TEMPORARY_CREDENTIALS = {
   username: 'hrl.admin',
   password: 'HRL2026!',
 };
-const AUTH_SESSION_KEY = 'hrl-document-builder-authenticated';
+const AUTH_SESSION_KEY = import.meta.env.DEV ? 'hrl-document-builder-authenticated' : 'hrl-document-builder-session';
+const emailApiUrl = import.meta.env.DEV ? '/api/send-document' : import.meta.env.VITE_EMAIL_API_URL;
+const authApiUrl = (path) => {
+  if (!emailApiUrl || !/\/api\/send-document\/?$/.test(emailApiUrl)) throw new Error('Portal API URL is not configured. Set VITE_EMAIL_API_URL to the Render /api/send-document URL.');
+  return emailApiUrl.replace(/\/api\/send-document\/?$/, `/api/${path}`);
+};
 const logoUrl = `${import.meta.env.BASE_URL}hrl-logo-crop.png`;
 
 const documentTypes = {
@@ -85,15 +90,19 @@ function LoginScreen({ onLogin }) {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    if (username === TEMPORARY_CREDENTIALS.username && password === TEMPORARY_CREDENTIALS.password) {
+    setSubmitting(true);
+    try {
+      await onLogin(username, password);
       setError('');
-      onLogin();
-      return;
+    } catch (loginError) {
+      setError(loginError.message || 'Unable to sign in right now.');
+    } finally {
+      setSubmitting(false);
     }
-    setError('The username or password is incorrect.');
   };
 
   return (
@@ -129,8 +138,8 @@ function LoginScreen({ onLogin }) {
             </Field>
           </div>
           {error && <div className="login-error" role="alert">{error}</div>}
-          <button className="login-submit" type="submit">Sign in</button>
-          <p className="login-note">Temporary local access · No account recovery is available yet.</p>
+          <button className="login-submit" type="submit" disabled={submitting}>{submitting ? 'Signing in…' : 'Sign in'}</button>
+          <p className="login-note">{import.meta.env.DEV ? 'Temporary local access · No account recovery is available yet.' : 'Authorized HRL staff only.'}</p>
         </form>
       </section>
     </main>
@@ -264,9 +273,8 @@ function ReportsDashboard({ drafts, onOpenDocument }) {
 
 export default function App() {
   const previewRef = useRef(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(
-    () => sessionStorage.getItem(AUTH_SESSION_KEY) === 'true'
-  );
+  const [authValue, setAuthValue] = useState(() => sessionStorage.getItem(AUTH_SESSION_KEY) || '');
+  const isAuthenticated = import.meta.env.DEV ? authValue === 'true' : Boolean(authValue);
   const [activeType, setActiveType] = useState('billing');
   const company = {
     name: 'HRL IT Services', taxId: '639218182994', address1: '162 D1 Gen. Julian Cruz, Barangka,',
@@ -279,10 +287,9 @@ export default function App() {
   }));
   const [exporting, setExporting] = useState(false);
   const [emailOpen, setEmailOpen] = useState(false);
-  const [emailForm, setEmailForm] = useState({ to: '', subject: '', message: '' });
+  const [emailForm, setEmailForm] = useState({ to: '', cc: '', subject: '', message: '' });
   const [emailStatus, setEmailStatus] = useState({ type: '', message: '' });
   const [sending, setSending] = useState(false);
-  const [emailAccessCode, setEmailAccessCode] = useState('');
   const isReports = activeType === 'reports';
   const config = navigationItems[activeType];
   const { client, meta, items } = isReports ? drafts.billing : drafts[activeType];
@@ -336,6 +343,7 @@ export default function App() {
   const openEmail = () => {
     setEmailForm({
       to: client.email,
+      cc: '',
       subject: `${config.title} ${meta.number} from HRL IT Services`,
       message: defaultEmailMessage(activeType, client.name),
     });
@@ -360,31 +368,53 @@ export default function App() {
     try {
       const pdf = await makePdf();
       const pdfBase64 = pdf.output('datauristring').split(',')[1];
-      const endpoint = import.meta.env.VITE_EMAIL_API_URL || '/api/send-document';
-      const response = await fetch(endpoint, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'X-HRL-Email-Code': emailAccessCode },
+      const response = await fetch(emailApiUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', ...(import.meta.env.DEV ? {} : { Authorization: `Bearer ${authValue}` }) },
         body: JSON.stringify({ ...emailData, pdfBase64 }),
       });
       const result = await response.json().catch(() => ({}));
+      if (response.status === 401 && !import.meta.env.DEV) {
+        sessionStorage.removeItem(AUTH_SESSION_KEY);
+        setAuthValue('');
+      }
       if (!response.ok) throw new Error(result.message || 'The email could not be sent.');
-      setEmailStatus({ type: 'success', message: `Sent to ${emailForm.to}. The PDF is attached.` });
+      setEmailStatus({ type: 'success', message: `Sent to ${emailForm.to}${emailForm.cc.trim() ? `, CC: ${emailForm.cc.trim()}` : ''}. The PDF is attached.` });
     } catch (error) {
-      setEmailStatus({ type: 'error', message: error.message || 'The email could not be sent.' });
+      setEmailStatus({ type: 'error', message: error instanceof TypeError ? `Cannot reach the email service. ${import.meta.env.DEV ? 'Start the local API server' : 'Check the Render service'} and try again.` : error.message || 'The email could not be sent.' });
     } finally {
       setSending(false);
     }
   };
 
-  const login = () => {
-    sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
-    setIsAuthenticated(true);
+  const login = async (username, password) => {
+    if (import.meta.env.DEV) {
+      if (username !== TEMPORARY_CREDENTIALS.username || password !== TEMPORARY_CREDENTIALS.password) throw new Error('The username or password is incorrect.');
+      sessionStorage.setItem(AUTH_SESSION_KEY, 'true');
+      setAuthValue('true');
+      return;
+    }
+    let response;
+    try {
+      response = await fetch(authApiUrl('login'), {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password }),
+      });
+    } catch {
+      throw new Error('Cannot reach the portal service. Please try again shortly.');
+    }
+    const result = await response.json().catch(() => null);
+    if (!result) throw new Error(`Portal service returned an unexpected response (HTTP ${response.status}). Check the API URL and deployment.`);
+    if (!response.ok) throw new Error(result.message || `Portal sign-in failed (HTTP ${response.status}).`);
+    if (!result.token) throw new Error('Portal service did not return a sign-in session. Check that the latest API server is deployed.');
+    sessionStorage.setItem(AUTH_SESSION_KEY, result.token);
+    setAuthValue(result.token);
   };
 
   const logout = () => {
     sessionStorage.removeItem(AUTH_SESSION_KEY);
-    setEmailAccessCode('');
     setEmailOpen(false);
-    setIsAuthenticated(false);
+    setAuthValue('');
+    if (!import.meta.env.DEV) fetch(authApiUrl('logout'), { method: 'POST', headers: { Authorization: `Bearer ${authValue}` } }).catch(() => {});
   };
 
   if (!isAuthenticated) return <LoginScreen onLogin={login} />;
@@ -567,9 +597,9 @@ export default function App() {
             <div className="email-dialog-body">
               <form id="document-email-form" className="email-compose" onSubmit={sendEmail}>
                 <Field label="To"><input type="email" required value={emailForm.to} onChange={(event) => setEmailForm({ ...emailForm, to: event.target.value })} placeholder="client@example.com" /></Field>
+                <Field label="CC (optional)"><input type="email" multiple maxLength="2550" value={emailForm.cc} onChange={(event) => setEmailForm({ ...emailForm, cc: event.target.value })} placeholder="name@example.com, team@example.com" /></Field>
                 <Field label="Subject"><input required maxLength="180" value={emailForm.subject} onChange={(event) => setEmailForm({ ...emailForm, subject: event.target.value })} /></Field>
                 <Field label="Message"><textarea required rows="8" maxLength="5000" value={emailForm.message} onChange={(event) => setEmailForm({ ...emailForm, message: event.target.value })} /></Field>
-                <Field label="Email authorization code"><input type="password" required autoComplete="off" value={emailAccessCode} onChange={(event) => setEmailAccessCode(event.target.value)} placeholder="Enter your send code" /></Field>
                 <div className="email-attachment"><span className="email-attachment-icon">PDF</span><div><strong>{meta.number || config.fileFallback}.pdf</strong><span>Current {config.title.toLowerCase()} preview, including all pages</span></div></div>
               </form>
               <div className="email-preview-panel"><div className="email-preview-label"><span className="live-dot" /> Message preview</div><iframe title="Email message preview" sandbox="" srcDoc={buildDocumentEmail(emailData).htmlContent} /></div>

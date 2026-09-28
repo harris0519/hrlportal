@@ -10,6 +10,7 @@ export function prepareDocumentEmail(body, senderEmail) {
   return {
     sender: { name: 'HRL IT Services', email: senderEmail },
     to: [{ email: data.to, name: data.clientName }],
+    ...(data.cc.length ? { cc: data.cc.map((email) => ({ email })) } : {}),
     replyTo: { email: senderEmail, name: 'HRL IT Services' },
     subject: data.subject,
     ...content,
@@ -24,7 +25,7 @@ export async function sendDocumentEmail(payload, apiKey, fetcher = fetch) {
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(20000),
   });
-  if (!response.ok) throw new Error('Email provider rejected the message.');
+  if (!response.ok) throw new Error(`Email provider rejected the message (HTTP ${response.status}).`);
   const result = await response.json();
   if (!result.messageId) throw new Error('Email provider did not acknowledge the message.');
   return result.messageId;

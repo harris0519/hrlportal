@@ -9,7 +9,7 @@ npm install
 npm run dev
 ```
 
-Open the local URL shown by Vite. Edit invoice details in the left panel and click **Export PDF**.
+Open the local URL shown by Vite. Local development keeps the temporary browser-side sign-in, so signing in does not require the API server. Edit invoice details in the left panel and click **Export PDF**. The hosted portal uses server-side sign-in with separate credentials.
 
 ## Production build
 
@@ -22,25 +22,27 @@ The document preview is rendered as an A4 page and exported to PDF using `html2c
 
 ## Email documents
 
-Billing, quotations, and transmittals each have a **Send email** button. The dialog lets you review the recipient, subject, message, and branded email preview. The current A4 document is attached as a PDF. Email is sent through Brevo's transactional API by the Node server in the repository root. The Brevo key is never placed in the browser bundle.
+Billing, quotations, and transmittals each have a **Send email** button. The dialog lets you review the recipient, optional comma-separated CC addresses, subject, message, and branded email preview. The current A4 document is attached as a PDF. Email is sent through Brevo's transactional API by the Node server in the repository root. The Brevo key is never placed in the browser bundle.
 
 Use Node.js 22 or later. From the repository root, copy `.env.example` to `.env.local` and set:
 
 - `BREVO_API_KEY`: the new Brevo transactional API key.
 - `HRL_SENDER_EMAIL`: an HRL sender address verified in Brevo.
-- `HRL_EMAIL_ACCESS_CODE`: a separate private code for staff to enter in the send dialog. Do not use the Brevo key here.
 - `ALLOWED_ORIGINS`: comma-separated exact portal origins, such as `http://localhost:5173` for local development.
 
-Run `npm run dev:api` and `npm run dev` in separate terminals. Vite proxies `/api/send-document` to the local server. Run `npm test` to check validation, escaping, provider requests, and access control.
+Run `npm run dev:api` and `npm run dev` in separate terminals. Vite proxies `/api/send-document` to the local server. The email endpoint accepts requests only from this computer and needs no separate send code. Run `npm test` to check validation, escaping, provider requests, and origin handling.
 
-The GitHub Pages deployment serves only static files. Deploy `server/`, `hrl-invoice-react/src/documentEmail.js`, and the root `package.json` to a Node host with `npm run start:api`; set the three server secrets and `ALLOWED_ORIGINS` there. Set the GitHub Actions repository variable `VITE_EMAIL_API_URL` to that host's HTTPS `/api/send-document` URL, then rebuild the portal. If the portal and API share one origin through a reverse proxy, leave that variable empty.
+## Hosted portal and email
 
-### Render setup
+GitHub Pages serves the frontend. Its deployment workflow builds with `VITE_EMAIL_API_URL=https://hrlportal.onrender.com/api/send-document`, so hosted sign-in and email both use the HRL Render web service. The browser sends a session token after sign-in; the Brevo key and admin password stay on the server.
 
-After pushing these changes to GitHub, create a **Web Service** connected to `harris0519/hrlportal`. Use the repository root (leave Root Directory empty), Node runtime, Build Command `npm ci`, and Start Command `npm run start:api`. Render supplies `PORT`; do not copy the local `PORT=3001` setting. Set the health check path to `/health` if offered.
+For the `hrlportal.onrender.com` service, use the repository root, Node.js 22 or later, Build Command `npm ci`, and Start Command `npm run start:api`. Set these values in that service's **Environment** page:
 
-In the service's **Environment** page set `BREVO_API_KEY`, `HRL_SENDER_EMAIL`, `HRL_EMAIL_ACCESS_CODE`, and `ALLOWED_ORIGINS`. The origin is only the scheme and host of the portal, with no `/hrlportal/` path; for the default GitHub Pages URL of this repository it is `https://harris0519.github.io`. You may also set `NODE_VERSION=22` to pin the runtime. Keep the API key and staff code in Render's environment settings, not GitHub Actions variables.
+- `BREVO_API_KEY`: the Brevo transactional API key.
+- `HRL_SENDER_EMAIL`: the verified sender address.
+- `HRL_ADMIN_USERNAME`: the hosted portal username (defaults to `hrl.admin`).
+- `HRL_ADMIN_PASSWORD`: a private password different from the temporary local password. Hosted sign-in stays unavailable until this is set.
+- `ALLOWED_ORIGINS`: `https://harris0519.github.io` for the GitHub Pages portal.
+- `NODE_ENV`: `production` if Render has not set it automatically.
 
-When Render reports the service live, open `https://YOUR-SERVICE.onrender.com/health` and expect `{"status":"ok"}`. Then set the GitHub repository Actions variable `VITE_EMAIL_API_URL` to `https://YOUR-SERVICE.onrender.com/api/send-document` and rerun the Pages deployment. The email button sends to the API after the site has been rebuilt with that variable.
-
-The existing portal sign-in is temporary browser-side access. The email endpoint separately checks the staff send code and limits requests per IP. Replace the browser-side sign-in with server authentication before using the portal for sensitive customer records.
+Set `/health` as the Render health check path if available. The hosted server listens on Render's `PORT` and requires a sign-in session for `/api/send-document`; sessions expire after eight hours or when the service restarts. The email endpoint limits requests per IP. After updating the service and Pages deployment, check `https://hrlportal.onrender.com/health`, sign in on GitHub Pages with the hosted credentials, and send a document to an address you control for the final delivery check.
