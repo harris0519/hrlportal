@@ -379,6 +379,7 @@ export default function App() {
       }
       if (!response.ok) throw new Error(result.message || 'The email could not be sent.');
       setEmailStatus({ type: 'success', message: `Sent to ${emailForm.to}${emailForm.cc.trim() ? `, CC: ${emailForm.cc.trim()}` : ''}. The PDF is attached.` });
+      setEmailOpen(false);
     } catch (error) {
       setEmailStatus({ type: 'error', message: error instanceof TypeError ? `Cannot reach the email service. ${import.meta.env.DEV ? 'Start the local API server' : 'Check the Render service'} and try again.` : error.message || 'The email could not be sent.' });
     } finally {
