@@ -45,4 +45,6 @@ For the `hrlportal.onrender.com` service, use the repository root, Node.js 22 or
 - `ALLOWED_ORIGINS`: `https://harris0519.github.io` for the GitHub Pages portal.
 - `NODE_ENV`: `production` if Render has not set it automatically.
 
+The same server also exposes `POST /api/contact` for the Oliva & Partners website. This public route accepts inquiries from `https://dof.law` and `https://www.dof.law` without a portal sign-in, validates the fields, limits requests, and sends a branded email to `olivaandpartners@dof.law`. Set `OLP_SENDER_EMAIL` and `OLP_CONTACT_EMAIL` in Render's Environment page to override the defaults in `.env.example`; the default sender is `hlazaro@socexconsulting.com`. The site should use `https://hrlportal.onrender.com/api/contact` as its `VITE_CONTACT_API_URL` repository variable.
+
 Set `/health` as the Render health check path if available. The hosted server listens on Render's `PORT` and requires a sign-in session for `/api/send-document`; sessions expire after eight hours or when the service restarts. The email endpoint limits requests per IP. After updating the service and Pages deployment, check `https://hrlportal.onrender.com/health`, sign in on GitHub Pages with the hosted credentials, and send a document to an address you control for the final delivery check.
